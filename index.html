@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>가위바위보 (MediaPipe Hands)</title>
+  <style>
+    html,body { margin:0; background:#000; color:#0f0; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 12px; }
+    .bar { display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+    button { padding:10px 14px; border-radius:12px; border:0; background:#0f0; color:#000; font-weight:700; cursor:pointer; }
+    button.secondary { background:#222; color:#0f0; border:1px solid #0f0; }
+    .stat { font-size:14px; opacity:0.8 }
+    #stage { position:relative; display:inline-block; }
+    #video { transform: scaleX(-1); width:100%; height:auto; display:block; }
+    #canvas { position:absolute; left:0; top:0; }
+    #label { position:absolute; left:10px; top:10px; font-size:18px; background:rgba(0,0,0,.5); padding:6px 8px; border-radius:8px; }
+  </style>
+  <!-- MediaPipe JS CDN -->
+  <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="bar">
+      <button id="start">Start Camera</button>
+      <button id="stop" class="secondary">Stop</button>
+      <span class="stat" id="stat"></span>
+    </div>
+    <div id="stage">
+      <video id="video" playsinline></video>
+      <canvas id="canvas"></canvas>
+      <div id="label">Ready</div>
+    </div>
+    <p class="stat">팁: 모바일은 HTTPS에서만 카메라 허용. iOS 사파리는 <b>Start</b> 버튼 같은 사용자 제스처가 있어야 카메라가 켜짐.</p>
+  </div>
+
+  <script>
+  const video  = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx    = canvas.getContext('2d');
+  const labelEl= document.getElementById('label');
+  const statEl = document.getElementById('stat');
+  const btnStart = document.getElementById('start');
+  const btnStop  = document.getElementById('stop');
+
+  const RPS = ["Rock","Paper","Scissors"];
+  let computer = RPS[Math.floor(Math.random()*3)];
+  let camera = null;
+  let stopped = true;
+
+  function rpsFromFingers(landmarks, w, h) {
+    if (!landmarks) return "No Hand";
+    // TIP/PIP 인덱스(엄지 제외)
+    const TIP = [8,12,16,20], PIP = [6,10,14,18];
+    const up = TIP.map((t,i)=>{
+      const tipY = landmarks[t].y * h;
+      const pipY = landmarks[PIP[i]].y * h;
+      return tipY < pipY; // 위에 있으면 펴짐
+    });
+    const cnt = up.filter(Boolean).length;
+    const [idx, mid, ring, pinky] = up;
+    if (idx && mid && !ring && !pinky) return "Scissors";
+    if (cnt===0) return "Rock";
+    if (cnt===4) return "Paper";
+    return "Unknown";
+  }
+
+  function decide(user, computer){
+    if (user==="No Hand" || user==="Unknown") return "";
+    if (user===computer) return "draw";
+    if ((computer==="Rock"&&user==="Scissors")||
+        (computer==="Scissors"&&user==="Paper")||
+        (computer==="Paper"&&user==="Rock")) return "lose";
+    return "win";
+  }
+
+  const hands = new Hands({
+    locateFile: (file)=> `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+  });
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.6,
+    minTrackingConfidence: 0.6
+  });
+
+  hands.onResults((results)=>{
+    const w = video.videoWidth  || 640;
+    const h = video.videoHeight || 480;
+    canvas.width = w; canvas.height = h;
+
+    // 미러 그리기
+    ctx.save();
+    ctx.scale(-1,1); ctx.translate(-w,0);
+    ctx.drawImage(results.image, 0, 0, w, h);
+    ctx.restore();
+
+    let user="No Hand";
+    if (results.multiHandLandmarks && results.multiHandLandmarks.length){
+      const lm = results.multiHandLandmarks[0];
+      // 랜드마크 그리기
+      drawConnectors(ctx, lm, HAND_CONNECTIONS, {color:'#0f0', lineWidth:2});
+      drawLandmarks(ctx, lm, {color:'#0f0', lineWidth:1});
+      user = rpsFromFingers(lm, w, h);
+    }
+    const result = decide(user, computer);
+    labelEl.textContent = `you: ${user} | ai: ${computer}${result?` | result: ${result}`:''}`;
+
+    // 이겼으면 3초 후 자동 종료(원하면 제거 가능)
+    if (result==="win" && !stopped){
+      stopped = true;
+      setTimeout(stopCamera, 3000);
+    }
+  });
+
+  async function startCamera(){
+    stopped = false;
+    computer = RPS[Math.floor(Math.random()*3)]; // 라운드마다 랜덤
+    statEl.textContent = "Starting camera...";
+    camera = new Camera(video, {
+      onFrame: async () => { await hands.send({image: video}); },
+      width: 640, height: 480
+    });
+    await camera.start();
+    statEl.textContent = "Camera started";
+  }
+
+  function stopCamera(){
+    try { camera && camera.stop(); } catch(e){}
+    if (video.srcObject) {
+      video.srcObject.getTracks().forEach(t=>t.stop());
+      video.srcObject = null;
+    }
+    statEl.textContent = "Stopped";
+  }
+
+  btnStart.addEventListener('click', startCamera);
+  btnStop .addEventListener('click', ()=>{ stopped=true; stopCamera(); });
+
+  // 페이지 이탈 시 카메라 정리
+  window.addEventListener('beforeunload', stopCamera);
+  </script>
+</body>
+</html>
