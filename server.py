@@ -44,7 +44,7 @@ def angle_at(p_mcp, p_pip, p_tip):
     # 벡터: MCP->PIP, TIP->PIP
     v1 = (p_mcp.x - p_pip.x, p_mcp.y - p_pip.y)
     v2 = (p_tip.x - p_pip.x, p_tip.y - p_pip.y)
-    n1 = math.hypot(*v1); n2 = math.hypot(*v2)
+    n1 = math.hypot(*v1); n2 = math.hypot(*v2) #v1,v2를 정규화
     if n1 == 0 or n2 == 0:
         return 0.0
     cos = (v1[0]*v2[0] + v1[1]*v2[1]) / (n1*n2)

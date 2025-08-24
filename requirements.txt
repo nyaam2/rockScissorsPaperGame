@@ -1,6 +1,6 @@
-fastapi==0.112.2
-uvicorn[standard]==0.30.6
+fastapi
+uvicorn[standard]
 numpy
-opencv-python
-mediapipe==0.10.14
-python-multipart  # 파일 업로드용
+opencv-python-headless
+mediapipe          # (클라우드 리눅스면 이걸로 OK; mac 전용 mediapipe-silicon 쓰지 마)
+python-multipart
