@@ -1,6 +1,9 @@
-fastapi
+fastapi==0.116.1
 uvicorn[standard]
 numpy
-opencv-python-headless
-mediapipe          # (클라우드 리눅스면 이걸로 OK; mac 전용 mediapipe-silicon 쓰지 마)
-python-multipart
+opencv-python-headless==4.12.0.88
+python-multipart>=0.0.9
+
+# Mac(M3 등) 로컬에선 silicon 빌드, 서버(Linux)엔 일반 mediapipe
+mediapipe-silicon; platform_system == "Darwin" and platform_machine == "arm64"
+mediapipe==0.10.14; not (platform_system == "Darwin" and platform_machine == "arm64")
