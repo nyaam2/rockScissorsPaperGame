@@ -1,146 +1,114 @@
 <!doctype html>
-<html lang="ko">
+<html>
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>가위바위보 (MediaPipe Hands)</title>
+  <title>Hand Debug Live</title>
   <style>
-    html,body { margin:0; background:#000; color:#0f0; font-family:system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    .wrap { max-width: 720px; margin: 0 auto; padding: 12px; }
-    .bar { display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
-    button { padding:10px 14px; border-radius:12px; border:0; background:#0f0; color:#000; font-weight:700; cursor:pointer; }
-    button.secondary { background:#222; color:#0f0; border:1px solid #0f0; }
-    .stat { font-size:14px; opacity:0.8 }
-    #stage { position:relative; display:inline-block; }
-    #video { transform: scaleX(-1); width:100%; height:auto; display:block; }
-    #canvas { position:absolute; left:0; top:0; }
-    #label { position:absolute; left:10px; top:10px; font-size:18px; background:rgba(0,0,0,.5); padding:6px 8px; border-radius:8px; }
+    body { margin:0; display:flex; height:100vh; background:#111; color:#eee; align-items:center; justify-content:center; }
+    #wrap { position:relative; width: 720px; height: 540px; }
+    video, canvas { position:absolute; left:0; top:0; width:100%; height:100%; }
+    video { z-index:1; }
+    canvas { z-index:2; pointer-events:none; }
+    #hint { position:absolute; left:8px; top:8px; background:#0008; padding:6px 10px; border-radius:8px; font:14px/1.3 system-ui; z-index:3; }
   </style>
-  <!-- MediaPipe JS CDN -->
-  <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 </head>
 <body>
-  <div class="wrap">
-    <div class="bar">
-      <button id="start">Start Camera</button>
-      <button id="stop" class="secondary">Stop</button>
-      <span class="stat" id="stat"></span>
-    </div>
-    <div id="stage">
-      <video id="video" playsinline></video>
-      <canvas id="canvas"></canvas>
-      <div id="label">Ready</div>
-    </div>
-    <p class="stat">팁: 모바일은 HTTPS에서만 카메라 허용. iOS 사파리는 <b>Start</b> 버튼 같은 사용자 제스처가 있어야 카메라가 켜짐.</p>
+  <div id="wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div id="hint">Live: MediaPipe Hands (MCP=파랑, PIP=노랑, TIP=빨강)</div>
   </div>
 
+  <!-- 1) Mediapipe CDN: 반드시 먼저 로드 -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+  <!-- 2) 전역 심볼 안전하게 바인딩 -->
   <script>
-  const video  = document.getElementById('video');
-  const canvas = document.getElementById('canvas');
-  const ctx    = canvas.getContext('2d');
-  const labelEl= document.getElementById('label');
-  const statEl = document.getElementById('stat');
-  const btnStart = document.getElementById('start');
-  const btnStop  = document.getElementById('stop');
+    const Hands            = window.Hands;
+    const Camera           = window.Camera;
+    const drawConnectors   = window.drawConnectors;
+    const drawLandmarks    = window.drawLandmarks;
+    const HAND_CONNECTIONS = window.HAND_CONNECTIONS;
+  </script>
 
-  const RPS = ["Rock","Paper","Scissors"];
-  let computer = RPS[Math.floor(Math.random()*3)];
-  let camera = null;
-  let stopped = true;
+  <!-- 3) 메인 스크립트 -->
+  <script>
+    const video  = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx    = canvas.getContext('2d');
 
-  function rpsFromFingers(landmarks, w, h) {
-    if (!landmarks) return "No Hand";
-    // TIP/PIP 인덱스(엄지 제외)
-    const TIP = [8,12,16,20], PIP = [6,10,14,18];
-    const up = TIP.map((t,i)=>{
-      const tipY = landmarks[t].y * h;
-      const pipY = landmarks[PIP[i]].y * h;
-      return tipY < pipY; // 위에 있으면 펴짐
+    const FINGERS_TIP = [8, 12, 16, 20];
+    const FINGERS_PIP = [6, 10, 14, 18];
+    const FINGERS_MCP = [5,  9, 13, 17];
+
+    function drawMcpPipTipRaw(ctx, lm, w, h) {
+      const toXY = (p) => [p.x * w, p.y * h];
+      for (let k = 0; k < 4; k++) {
+        const [mx,my] = toXY(lm[FINGERS_MCP[k]]);
+        const [px,py] = toXY(lm[FINGERS_PIP[k]]);
+        const [tx,ty] = toXY(lm[FINGERS_TIP[k]]);
+        // 선
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgb(255,255,0)';
+        ctx.beginPath(); ctx.moveTo(mx,my); ctx.lineTo(px,py); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(px,py); ctx.lineTo(tx,ty); ctx.stroke();
+        // 점
+        const dot = (x,y,c) => { ctx.fillStyle=c; ctx.beginPath(); ctx.arc(x,y,6,0,Math.PI*2); ctx.fill(); };
+        dot(mx,my,'rgb(0,128,255)');  // MCP
+        dot(px,py,'rgb(255,255,0)');  // PIP
+        dot(tx,ty,'rgb(255,64,64)');  // TIP
+      }
+    }
+
+    // Mediapipe Hands 인스턴스
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
     });
-    const cnt = up.filter(Boolean).length;
-    const [idx, mid, ring, pinky] = up;
-    if (idx && mid && !ring && !pinky) return "Scissors";
-    if (cnt===0) return "Rock";
-    if (cnt===4) return "Paper";
-    return "Unknown";
-  }
-
-  function decide(user, computer){
-    if (user==="No Hand" || user==="Unknown") return "";
-    if (user===computer) return "draw";
-    if ((computer==="Rock"&&user==="Scissors")||
-        (computer==="Scissors"&&user==="Paper")||
-        (computer==="Paper"&&user==="Rock")) return "lose";
-    return "win";
-  }
-
-  const hands = new Hands({
-    locateFile: (file)=> `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-  });
-  hands.setOptions({
-    maxNumHands: 1,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.6,
-    minTrackingConfidence: 0.6
-  });
-
-  hands.onResults((results)=>{
-    const w = video.videoWidth  || 640;
-    const h = video.videoHeight || 480;
-    canvas.width = w; canvas.height = h;
-
-    // 미러 그리기
-    ctx.save();
-    ctx.scale(-1,1); ctx.translate(-w,0);
-    ctx.drawImage(results.image, 0, 0, w, h);
-    ctx.restore();
-
-    let user="No Hand";
-    if (results.multiHandLandmarks && results.multiHandLandmarks.length){
-      const lm = results.multiHandLandmarks[0];
-      // 랜드마크 그리기
-      drawConnectors(ctx, lm, HAND_CONNECTIONS, {color:'#0f0', lineWidth:2});
-      drawLandmarks(ctx, lm, {color:'#0f0', lineWidth:1});
-      user = rpsFromFingers(lm, w, h);
-    }
-    const result = decide(user, computer);
-    labelEl.textContent = `you: ${user} | ai: ${computer}${result?` | result: ${result}`:''}`;
-
-    // 이겼으면 3초 후 자동 종료(원하면 제거 가능)
-    if (result==="win" && !stopped){
-      stopped = true;
-      setTimeout(stopCamera, 3000);
-    }
-  });
-
-  async function startCamera(){
-    stopped = false;
-    computer = RPS[Math.floor(Math.random()*3)]; // 라운드마다 랜덤
-    statEl.textContent = "Starting camera...";
-    camera = new Camera(video, {
-      onFrame: async () => { await hands.send({image: video}); },
-      width: 640, height: 480
+    hands.setOptions({
+      selfieMode: true,
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.6
     });
-    await camera.start();
-    statEl.textContent = "Camera started";
-  }
 
-  function stopCamera(){
-    try { camera && camera.stop(); } catch(e){}
-    if (video.srcObject) {
-      video.srcObject.getTracks().forEach(t=>t.stop());
-      video.srcObject = null;
-    }
-    statEl.textContent = "Stopped";
-  }
+    hands.onResults((results) => {
+      const w = canvas.width  = video.videoWidth  || 640;
+      const h = canvas.height = video.videoHeight || 480;
 
-  btnStart.addEventListener('click', startCamera);
-  btnStop .addEventListener('click', ()=>{ stopped=true; stopCamera(); });
+      ctx.clearRect(0,0,w,h);
+      ctx.drawImage(results.image, 0, 0, w, h);
 
-  // 페이지 이탈 시 카메라 정리
-  window.addEventListener('beforeunload', stopCamera);
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length) {
+        const lm = results.multiHandLandmarks[0];
+
+        // A) 기본 뼈대 (있으면 사용)
+        if (typeof drawConnectors === 'function' && typeof drawLandmarks === 'function' && HAND_CONNECTIONS) {
+          drawConnectors(ctx, lm, HAND_CONNECTIONS, { color: '#00FFAA', lineWidth: 2 });
+          drawLandmarks(ctx, lm, { color: '#00D4FF', lineWidth: 1, radius: 2 });
+        }
+        // B) 우리가 직접 그리는 MCP/PIP/TIP (항상)
+        drawMcpPipTipRaw(ctx, lm, w, h);
+      }
+    });
+
+    // 카메라 시작
+    (async () => {
+      // 127.0.0.1 로 열어야 getUserMedia 보안 통과가 안전함
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 720, height: 540 }});
+      video.srcObject = stream;
+      await video.play();
+
+      const camera = new Camera(video, {
+        onFrame: async () => { await hands.send({ image: video }); },
+        width: 720, height: 540
+      });
+      camera.start();
+    })().catch(err => {
+      console.error(err);
+      alert('카메라 권한을 허용해 주세요.\n' + err);
+    });
   </script>
 </body>
 </html>
